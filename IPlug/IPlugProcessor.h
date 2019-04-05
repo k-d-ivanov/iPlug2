@@ -180,6 +180,9 @@ public:
 
   /** @return \c true if the plug-in was configured as an instrument at compile time */
   bool IsInstrument() const { return mPlugType == EIPlugPluginType::kInstrument; }
+
+  /** @return \c true if the plug-in was configured as an MFX at compile time */
+  bool IsMidiEffect() const { return mPlugType == EIPlugPluginType::kMIDIEffect; }
   
   /**  */
   int GetAUPluginType() const
