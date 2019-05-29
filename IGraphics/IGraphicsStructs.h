@@ -25,6 +25,7 @@
 #include <numeric>
 #include <chrono>
 #include <string>
+#include <memory>
 
 #include "mutex.h"
 #include "wdlstring.h"
@@ -44,27 +45,35 @@ class IControl;
 class ILambdaControl;
 struct IRECT;
 struct IMouseInfo;
-template <typename T = double>
-inline T DegToRad(T degrees);
+struct IKeyPress;
+struct IColor;
 
-typedef std::function<void(IControl*)> IActionFunction;
-typedef std::function<void(IControl*)> IAnimationFunction;
-typedef std::function<void(ILambdaControl*, IGraphics&, IRECT&)> ILambdaDrawFunction;
+using IActionFunction = std::function<void(IControl*)>;
+using IAnimationFunction = std::function<void(IControl*)>;
+using ILambdaDrawFunction = std::function<void(ILambdaControl*, IGraphics&, IRECT&)>;
+using IKeyHandlerFunc = std::function<bool(const IKeyPress& key, bool isUp)>;
+using IMsgBoxCompletionHanderFunc = std::function<void(EMsgBoxResult result)>;
+using IColorPickerHandlerFunc = std::function<void(const IColor& result)>;
 
 void DefaultClickActionFunc(IControl* pCaller);
 void DefaultAnimationFunc(IControl* pCaller);
 void SplashClickActionFunc(IControl* pCaller);
 void SplashAnimationFunc(IControl* pCaller);
 
-typedef std::chrono::high_resolution_clock Time;
-typedef std::chrono::time_point<std::chrono::high_resolution_clock> TimePoint;
-typedef std::chrono::duration<double, std::chrono::milliseconds::period> Milliseconds;
+using TimePoint = std::chrono::time_point<std::chrono::high_resolution_clock>;
+using Milliseconds = std::chrono::duration<double, std::chrono::milliseconds::period>;
 
-typedef WDL_TypedBuf<unsigned char> RawBitmapData;
+using RawBitmapData = WDL_TypedBuf<uint8_t>;
+
+template <typename T>
+inline T DegToRad(T degrees)
+{
+  return static_cast<T>(::PI) * (degrees / static_cast<T>(180.0));
+}
 
 #ifdef IGRAPHICS_AGG
   #include "IGraphicsAGG_src.h"
-  typedef agg::pixel_map* BitmapData;
+  using BitmapData = agg::pixel_map*;
 #elif defined IGRAPHICS_CAIRO
   #if defined OS_MAC || defined OS_LINUX
     #include "cairo/cairo.h"
@@ -73,22 +82,31 @@ typedef WDL_TypedBuf<unsigned char> RawBitmapData;
   #else
     #error NOT IMPLEMENTED
   #endif
-  typedef cairo_surface_t* BitmapData;
+  using BitmapData = cairo_surface_t*;
 #elif defined IGRAPHICS_NANOVG
-  typedef int BitmapData;
+  using BitmapData = int;
 #elif defined IGRAPHICS_LICE
   #include "lice.h"
-  typedef LICE_IBitmap* BitmapData;
+  using BitmapData = LICE_IBitmap*;
 #elif defined IGRAPHICS_CANVAS
   #include <emscripten.h>
   #include <emscripten/val.h>
-  typedef emscripten::val* BitmapData;
+  using BitmapData = emscripten::val*;
 #else // NO_IGRAPHICS
-  typedef void* BitmapData;
+  using BitmapData = void*;
 #endif
 
-#ifdef OS_WIN
-#include "Stringapiset.h"
+#if defined OS_MAC || defined OS_IOS
+  #include <CoreText/CoreText.h>
+  using FontDescriptor = CTFontDescriptorRef;
+#elif defined OS_WIN
+  #include "wingdi.h"
+  #include "Stringapiset.h"
+  using FontDescriptor = HFONT;
+#elif defined OS_WEB
+  using FontDescriptor = std::pair<WDL_String, WDL_String>*;
+#else 
+  // NO_IGRAPHICS
 #endif
 
 /** A bitmap abstraction around the different drawing back end bitmap representations.
@@ -415,38 +433,6 @@ const IColor DEFAULT_TEXT_FGCOLOR = COLOR_BLACK;
 const IColor DEFAULT_TEXTENTRY_BGCOLOR = COLOR_WHITE;
 const IColor DEFAULT_TEXTENTRY_FGCOLOR = COLOR_BLACK;
 
-/** Contains a set of colours used to theme IVControls */
-struct IVColorSpec
-{
-  IColor mBGColor = DEFAULT_BGCOLOR; // Background
-  IColor mFGColor = DEFAULT_FGCOLOR; // Foreground
-  IColor mPRColor = DEFAULT_PRCOLOR; // Pressed
-  IColor mFRColor = DEFAULT_FRCOLOR; // Frame
-  IColor mHLColor = DEFAULT_HLCOLOR; // Highlight
-  IColor mSHColor = DEFAULT_SHCOLOR; // Shadow
-  IColor mX1Color = DEFAULT_X1COLOR; // Extra 1
-  IColor mX2Color = DEFAULT_X2COLOR; // Extra 2
-  IColor mX3Color = DEFAULT_X3COLOR; // Extra 3
-
-  /** /todo  */
-  void SetColors(const IColor BGColor = DEFAULT_BGCOLOR,
-                 const IColor FGColor = DEFAULT_FGCOLOR,
-                 const IColor PRColor = DEFAULT_PRCOLOR,
-                 const IColor FRColor = DEFAULT_FRCOLOR,
-                 const IColor HLColor = DEFAULT_HLCOLOR,
-                 const IColor SHColor = DEFAULT_SHCOLOR,
-                 const IColor X1Color = DEFAULT_X1COLOR,
-                 const IColor X2Color = DEFAULT_X2COLOR,
-                 const IColor X3Color = DEFAULT_X3COLOR)
-  {
-  }
-
-  /** /todo  */
-  void ResetColors() { SetColors(); }
-};
-
-const IVColorSpec DEFAULT_SPEC = IVColorSpec();
-
 /** Used to manage composite/blend operations, independent of draw class/platform */
 struct IBlend
 {
@@ -556,9 +542,6 @@ struct IText
   /** /todo */
   enum EVAlign { kVAlignTop, kVAlignMiddle, kVAlignBottom } mVAlign;
 
-  /** /todo */
-  enum EQuality { kQualityDefault, kQualityNonAntiAliased, kQualityAntiAliased, kQualityClearType } mQuality = kQualityDefault;
-
   /** /todo 
    * @param size /todo
    * @param color /todo
@@ -566,16 +549,14 @@ struct IText
    * @param align /todo
    * @param valign /todo
    * @param orientation /todo
-   * @param quality /todo
    * @param TEBGColor /todo
    * @param TEFGColor /todo */
-  IText(int size = DEFAULT_TEXT_SIZE,
+  explicit IText(float size = DEFAULT_TEXT_SIZE,
         const IColor& color = DEFAULT_TEXT_FGCOLOR,
         const char* font = nullptr,
         EAlign align = kAlignCenter,
         EVAlign valign = kVAlignMiddle,
-        int orientation = 0,
-        EQuality quality = kQualityDefault,
+        float orientation = 0,
         const IColor& TEBGColor = DEFAULT_TEXTENTRY_BGCOLOR,
         const IColor& TEFGColor = DEFAULT_TEXTENTRY_FGCOLOR)
     : mSize(size)
@@ -583,7 +564,6 @@ struct IText
     , mAlign(align)
     , mVAlign(valign)
     , mOrientation(orientation)
-    , mQuality(quality)
     , mTextEntryBGColor(TEBGColor)
     , mTextEntryFGColor(TEFGColor)
   {
@@ -593,7 +573,7 @@ struct IText
   /** /todo 
     * @param size /todo
     * @param valign /todo */
-  IText(int size, EVAlign valign)
+  explicit IText(float size, EVAlign valign)
   : IText()
   {
     mSize = size;
@@ -603,66 +583,48 @@ struct IText
   /** /todo 
    * @param size /todo
    * @param align /todo */
-  IText(int size, EAlign align)
+  explicit IText(float size, EAlign align)
   : IText()
   {
     mSize = size;
     mAlign = align;
   }
-    
+  
+  explicit IText(float size, const char* font)
+  : IText()
+  {
+    mSize = size;
+    strcpy(mFont, (font ? font : DEFAULT_FONT));
+  }
+  
+  IText WithColors(const IColor& fgColor, const IColor& teBgColor = DEFAULT_TEXTENTRY_BGCOLOR, const IColor& teFgColor = DEFAULT_TEXTENTRY_FGCOLOR) const
+  {
+    IText newText = *this;
+    newText.mFGColor = fgColor;
+    newText.mTextEntryBGColor = teBgColor;
+    newText.mTextEntryFGColor = teFgColor;
+    return newText;
+  }
+  
   char mFont[FONT_LEN];
-  int mSize;
+  float mSize;
   IColor mFGColor;
   IColor mTextEntryBGColor;
   IColor mTextEntryFGColor;
-  int mOrientation = 0; // Degrees ccwise from normal.
+  float mOrientation = 0.f; // Degrees ccwise from normal.
 };
 
 const IText DEFAULT_TEXT = IText();
-
-/** Used to manage raw font data. */
-class IFontData : private WDL_TypedBuf<unsigned char>
-{
-public:
-  IFontData() : mFaceIdx(-1) {}
-    
-  IFontData(const void* data, int size, int faceIdx) : mFaceIdx(faceIdx)
-  {
-    const unsigned char* src = reinterpret_cast<const unsigned char*>(data);
-    unsigned char* dest = ResizeOK(size);
-      
-    if (dest)
-      std::copy(src, src + size, dest);
-  }
-  
-  IFontData(int size) : mFaceIdx(-1)
-  {
-    Resize(size);
-  }
-
-  void SetFaceIdx(int faceIdx) { mFaceIdx = faceIdx; }
-
-  bool IsValid() const { return GetSize() && mFaceIdx >= 0; }
-    
-  unsigned char* Get() { return WDL_TypedBuf<unsigned char>::Get(); }
-  int GetSize() const { return WDL_TypedBuf<unsigned char>::GetSize(); }
-  int GetFaceIdx() const { return mFaceIdx; }
-    
-private:
-  int mFaceIdx;
-};
-
-/** IFontDataPtr is a managed pointer for transferring the ownership of font data */
-typedef std::unique_ptr<IFontData> IFontDataPtr;
 
 /** Used to retrieve font info directly from a raw memory buffer. */
 class IFontInfo
 {
 public:
   IFontInfo(const void* data, uint32_t dataSize, uint32_t faceIdx)
-  : mData(reinterpret_cast<const unsigned char*>(data)), mHeadLocation(0), mNameLocation(0), mHheaLocation(0), mMacStyle(0), mUnitsPerEM(0), mAscender(0), mDescender(0), mLineGap(0), mLineHeight(0)
+  : mData(reinterpret_cast<const unsigned char*>(data)), mHeadLocation(0), mNameLocation(0), mHheaLocation(0), mMacStyle(0), mUnitsPerEM(0), mAscender(0), mDescender(0), mLineGap(0)
   {
-    FindFace(faceIdx);
+    if (mData)
+      FindFace(faceIdx);
     
     if (mData)
     {
@@ -680,7 +642,6 @@ public:
         mAscender = GetSInt16(mHheaLocation + 4);
         mDescender = GetSInt16(mHheaLocation + 6);
         mLineGap = GetSInt16(mHheaLocation + 8);
-        mLineHeight = (mAscender - mDescender) + mLineGap;
       }
     }
   }
@@ -698,11 +659,13 @@ public:
   bool IsCondensed() const  { return mMacStyle & (1 << 5); }
   bool IsExpanded() const   { return mMacStyle & (1 << 6); }
   
+  double GetHeightEMRatio() const { return mUnitsPerEM / static_cast<double>(mAscender - mDescender); }
+
   uint16_t GetUnitsPerEM() const { return mUnitsPerEM; }
   int16_t GetAscender() const    { return mAscender; }
   int16_t GetDescender() const   { return mDescender; }
   int16_t GetLineGap() const     { return mLineGap; }
-  int16_t GetLineHeight() const  { return mLineHeight; }
+  int16_t GetLineHeight() const  { return (mAscender - mDescender) + mLineGap; }
   
 private:
   
@@ -836,11 +799,80 @@ private:
   int16_t mAscender;
   int16_t mDescender;
   int16_t mLineGap;
-  int16_t mLineHeight;
 };
 
-/** Used to manage a rectangular area, independent of draw class/platform.
+/** Used to manage raw font data. */
+class IFontData : public IFontInfo, private WDL_TypedBuf<unsigned char>
+{
+public:
+    IFontData() : IFontInfo(nullptr, 0, -1), mFaceIdx(-1) {}
+    
+    IFontData(const void* data, int size, int faceIdx) : IFontInfo(data, size, faceIdx), mFaceIdx(faceIdx)
+    {
+        const unsigned char* src = reinterpret_cast<const unsigned char*>(data);
+        unsigned char* dest = ResizeOK(size);
+        
+        if (dest)
+            std::copy(src, src + size, dest);
+    }
+    
+    IFontData(int size) : IFontInfo(nullptr, 0, -1), mFaceIdx(-1)
+    {
+      Resize(size);
+    }
+    
+    void SetFaceIdx(int faceIdx)
+    {
+      mFaceIdx = faceIdx;
+      static_cast<IFontData&>(*this) = IFontData(Get(), GetSize(), mFaceIdx);
+    }
+    
+    bool IsValid() const { return GetSize() && mFaceIdx >= 0 && IFontInfo::IsValid(); }
+    
+    unsigned char* Get() { return WDL_TypedBuf<unsigned char>::Get(); }
+    int GetSize() const { return WDL_TypedBuf<unsigned char>::GetSize(); }
+    int GetFaceIdx() const { return mFaceIdx; }
+    
+private:
+    int mFaceIdx;
+};
 
+/** IFontDataPtr is a managed pointer for transferring the ownership of font data */
+using IFontDataPtr = std::unique_ptr<IFontData>;
+
+/** /todo */
+class PlatformFont
+{
+public:
+  PlatformFont(bool system) : mSystem(system) {}
+  virtual ~PlatformFont() {}
+  virtual FontDescriptor GetDescriptor() { return nullptr; }
+  virtual IFontDataPtr GetFontData() { return IFontDataPtr(new IFontData()); }
+  bool IsSystem() { return mSystem; }
+    
+protected:
+  int GetFaceIdx(const void* data, int dataSize, const char* styleName)
+  {
+    for (int idx = 0; ; idx++)
+    {
+      IFontInfo fontInfo(data, dataSize, idx);
+      
+      if (!fontInfo.IsValid())
+      return -1;
+      
+      const WDL_String& style = fontInfo.GetStyle();
+      
+      if (style.GetLength() && (!styleName[0] || !strcmp(style.Get(), styleName)))
+      return idx;
+    }
+  }
+
+  bool mSystem;
+};
+
+using PlatformFontPtr = std::unique_ptr<PlatformFont>;
+
+/** Used to manage a rectangular area, independent of draw class/platform.
  * An IRECT is always specified in 1:1 pixels, any scaling for high DPI happens in the drawing class.
  * In IGraphics 0,0 is top left. */
 struct IRECT
@@ -885,7 +917,7 @@ struct IRECT
   {
     L = T = R = B = 0.f;
   }
-
+  
   bool operator==(const IRECT& rhs) const
   {
     return (L == rhs.L && T == rhs.T && R == rhs.R && B == rhs.B);
@@ -1656,20 +1688,23 @@ struct IRECT
 struct IKeyPress
 {
   int VK; // Windows VK_XXX
-  char Ascii;
+  char utf8[5] = {0}; // UTF8 key
   bool S, C, A; // SHIFT / CTRL(WIN) or CMD (MAC) / ALT
   
   /** /todo 
-   * @param ascii /todo
+   * @param _utf8 /todo
    * @param vk /todo
    * @param s /todo
    * @param c /todo
    * @param a /todo */
-  IKeyPress(char ascii, int vk, bool s = false, bool c = false, bool a = false)
+  IKeyPress(const char* _utf8, int vk, bool s = false, bool c = false, bool a = false)
   : VK(vk)
-  , Ascii(ascii)
   , S(s), C(c), A(a)
-  {}
+  {
+    strcpy(utf8, _utf8);
+  }
+  
+  void DBGPrint() const { DBGMSG("VK: %i\n", VK); }
 };
 
 /** Used to manage mouse modifiers i.e. right click and shift/control/alt keys. */
@@ -2251,12 +2286,12 @@ private:
 };
 
 /** ILayerPtr is a managed pointer for transferring the ownership of layers */
-typedef std::unique_ptr<ILayer> ILayerPtr;
+using ILayerPtr = std::unique_ptr<ILayer>;
 
 /** Used to specify a gaussian drop-shadow. */
 struct IShadow
 {
-  IShadow(){}
+  IShadow() {}
 
   /** /todo 
    * @param pattern /todo
@@ -2411,4 +2446,163 @@ private:
   WDL_PtrList<DataKey> mDatas;
 };
 
+enum IVShape
+{
+  kVShapeCircle = 0,
+  kVShapeRectangle,
+  kVShapeTriangle,
+  kNumVShapes
+};
+
+/** Contains a set of colors used to theme IVControls */
+struct IVColorSpec
+{
+  IColor mColors[kNumDefaultVColors];
+  
+  void SetColors(const IColor BGColor = DEFAULT_BGCOLOR,
+                 const IColor FGColor = DEFAULT_FGCOLOR,
+                 const IColor PRColor = DEFAULT_PRCOLOR,
+                 const IColor FRColor = DEFAULT_FRCOLOR,
+                 const IColor HLColor = DEFAULT_HLCOLOR,
+                 const IColor SHColor = DEFAULT_SHCOLOR,
+                 const IColor X1Color = DEFAULT_X1COLOR,
+                 const IColor X2Color = DEFAULT_X2COLOR,
+                 const IColor X3Color = DEFAULT_X3COLOR)
+  {
+  }
+  
+  const IColor& GetColor(EVColor color) const
+  {
+    return mColors[(int) color];
+  }
+  
+  static const IColor& GetDefaultColor(EVColor idx)
+  {
+    switch(idx)
+    {
+      case kBG: return DEFAULT_BGCOLOR; // Background
+      case kFG: return DEFAULT_FGCOLOR; // Foreground
+      case kPR: return DEFAULT_PRCOLOR; // Pressed
+      case kFR: return DEFAULT_FRCOLOR; // Frame
+      case kHL: return DEFAULT_HLCOLOR; // Highlight
+      case kSH: return DEFAULT_SHCOLOR; // Shadow
+      case kX1: return DEFAULT_X1COLOR; // Extra 1
+      case kX2: return DEFAULT_X2COLOR; // Extra 2
+      case kX3: return DEFAULT_X3COLOR; // Extra 3
+      default:
+        return COLOR_TRANSPARENT;
+    };
+  }
+  
+  IVColorSpec()
+  {
+    mColors[kBG] = DEFAULT_BGCOLOR; // Background
+    mColors[kFG] = DEFAULT_FGCOLOR; // Foreground
+    mColors[kPR] = DEFAULT_PRCOLOR; // Pressed
+    mColors[kFR] = DEFAULT_FRCOLOR; // Frame
+    mColors[kHL] = DEFAULT_HLCOLOR; // Highlight
+    mColors[kSH] = DEFAULT_SHCOLOR; // Shadow
+    mColors[kX1] = DEFAULT_X1COLOR; // Extra 1
+    mColors[kX2] = DEFAULT_X2COLOR; // Extra 2
+    mColors[kX3] = DEFAULT_X3COLOR; // Extra 3
+  }
+  
+  IVColorSpec(const std::initializer_list<IColor>& colors)
+  {
+    assert(colors.size() <= kNumDefaultVColors);
+    
+    int i = 0;
+    
+    for(auto& c : colors)
+    {
+      mColors[i++] = c;
+    }
+    
+    for(;i < kNumDefaultVColors; i++)
+    {
+      mColors[i] = GetDefaultColor((EVColor) i);
+    }
+  }
+  
+  /** /todo  */
+  void ResetColors() { SetColors(); }
+};
+
+const IVColorSpec DEFAULT_SPEC = IVColorSpec();
+
+
+static constexpr bool DEFAULT_HIDE_CURSOR = true;
+static constexpr bool DEFAULT_SHOW_VALUE = true;
+static constexpr bool DEFAULT_SHOW_LABEL = true;
+static constexpr bool DEFAULT_DRAW_FRAME = true;
+static constexpr bool DEFAULT_DRAW_SHADOWS = true;
+static constexpr bool DEFAULT_EMBOSS = false;
+static constexpr float DEFAULT_ROUNDNESS = 0.f;
+static constexpr float DEFAULT_FRAME_THICKNESS = 2.f;
+static constexpr float DEFAULT_SHADOW_OFFSET = 3.f;
+const IText DEFAULT_LABEL_TEXT {DEFAULT_TEXT_SIZE + 5.f, IText::kVAlignTop};
+const IText DEFAULT_VALUE_TEXT {DEFAULT_TEXT_SIZE, IText::kVAlignBottom};
+
+struct IVStyle
+{
+  bool hideCursor = DEFAULT_HIDE_CURSOR;
+  bool showLabel = DEFAULT_SHOW_LABEL;
+  bool showValue = DEFAULT_SHOW_VALUE;
+  bool drawFrame = DEFAULT_DRAW_FRAME;
+  bool drawShadows = DEFAULT_DRAW_SHADOWS;
+  bool emboss = DEFAULT_EMBOSS;
+  float roundness = DEFAULT_ROUNDNESS;
+  float frameThickness = DEFAULT_FRAME_THICKNESS;
+  float shadowOffset = DEFAULT_SHADOW_OFFSET;
+  IVColorSpec colorSpec = DEFAULT_SPEC;
+  IText labelText = DEFAULT_LABEL_TEXT;
+  IText valueText = DEFAULT_VALUE_TEXT;
+  
+  explicit IVStyle(bool showLabel = DEFAULT_SHOW_LABEL,
+          bool showValue = DEFAULT_SHOW_VALUE,
+          const std::initializer_list<IColor>& colors = {},
+          const IText& labelText = DEFAULT_LABEL_TEXT,
+          const IText& valueText = DEFAULT_VALUE_TEXT,
+          bool hideCursor = DEFAULT_HIDE_CURSOR,
+          bool drawFrame = DEFAULT_DRAW_FRAME,
+          bool drawShadows = DEFAULT_DRAW_SHADOWS,
+          bool emboss = DEFAULT_EMBOSS,
+          float roundness = DEFAULT_ROUNDNESS,
+          float frameThickness = DEFAULT_FRAME_THICKNESS,
+          float shadowOffset = DEFAULT_SHADOW_OFFSET)
+  : showLabel(showLabel)
+  , showValue(showValue)
+  , colorSpec(colors)
+  , labelText(labelText)
+  , valueText(valueText)
+  , hideCursor(hideCursor)
+  , drawFrame(drawFrame)
+  , drawShadows(drawShadows)
+  , emboss(emboss)
+  , roundness(roundness)
+  , frameThickness(frameThickness)
+  , shadowOffset(shadowOffset)
+  {
+  }
+  
+  explicit IVStyle(const std::initializer_list<IColor>& colors)
+  : colorSpec(colors)
+  {
+  }
+  
+  IVStyle WithShowLabel(bool show) const { IVStyle newStyle = *this; newStyle.showLabel = show; return newStyle; }
+  IVStyle WithShowValue(bool show) const { IVStyle newStyle = *this; newStyle.showValue = show; return newStyle; }
+  IVStyle WithLabelText(const IText& text) const { IVStyle newStyle = *this; newStyle.labelText = text; return newStyle;}
+  IVStyle WithValueText(const IText& text) const { IVStyle newStyle = *this; newStyle.valueText = text; return newStyle; }
+  IVStyle WithColor(EVColor idx, IColor color) const { IVStyle newStyle = *this; newStyle.colorSpec.mColors[idx] = color; return newStyle; }
+  IVStyle WithColors(IVColorSpec spec) const { IVStyle newStyle = *this; newStyle.colorSpec = spec; return newStyle; }
+  IVStyle WithRoundness(float r) const { IVStyle newStyle = *this; newStyle.roundness = r; return newStyle; }
+  IVStyle WithFrameThickness(float t) const { IVStyle newStyle = *this; newStyle.frameThickness = t; return newStyle; }
+  IVStyle WithShadowOffset(float t) const { IVStyle newStyle = *this; newStyle.shadowOffset = t; return newStyle; }
+  IVStyle WithEmboss(bool v) const { IVStyle newStyle = *this; newStyle.emboss = v; return newStyle; }
+  IVStyle WithDrawShadows(bool v) const { IVStyle newStyle = *this; newStyle.drawShadows = v; return newStyle; }
+  IVStyle WithDrawFrame(bool v) const { IVStyle newStyle = *this; newStyle.drawFrame = v; return newStyle; }
+};
+
+const IVStyle DEFAULT_STYLE = IVStyle();
 /**@}*/

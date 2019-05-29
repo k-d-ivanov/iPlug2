@@ -49,7 +49,7 @@ static const char* DEFAULT_PATH = "~/Desktop";
 #endif
 
 const char* const DEFAULT_FONT = "Roboto-Regular";
-const int DEFAULT_TEXT_SIZE = 14;
+const float DEFAULT_TEXT_SIZE = 14.f;
 const int FONT_LEN = 64;
 
 /** @enum EType Blend type
@@ -95,9 +95,29 @@ enum EVColor
   kHL,        // highlight: mouse over or focus
   kSH,        // shadow
   kX1,        // extra1
+  kGR = kX1,  // greyed
   kX2,        // extra2
   kX3,        // extra3
   kNumDefaultVColors
+};
+
+static const char* kVColorStrs[kNumDefaultVColors] =
+{
+  "background",
+  "foreground/off states",
+  "pressed/on states",
+  "frame",
+  "highlight",
+  "shadow",
+  "extra1/greyed",
+  "extra2",
+  "extra3"
+};
+
+enum EWinding
+{
+  kWindingCW,
+  kWindingCCW
 };
 
 enum EFillRule
@@ -160,7 +180,7 @@ enum ECursor
 };
 
 // This enumeration must match win32 message box options
-enum EMessageBoxType
+enum EMsgBoxType
 {
   kMB_OK = 0,
   kMB_OKCANCEL = 1,
@@ -170,8 +190,9 @@ enum EMessageBoxType
 };
 
 // This enumeration must match win32 message box results
-enum EMessageBoxResult
+enum EMsgBoxResult
 {
+  kNoResult, //If IGraphics::ShowMessageBox can't return inline (e.g. because it requires an asynchronous call)
   kOK = 1,
   kCANCEL = 2,
   kABORT = 3,
@@ -232,8 +253,45 @@ enum EVirtualKey
   kVK_DELETE =      0x2E,
   kVK_HELP =        0x2F,
 
+  kVK_0 =           0x30,
+  kVK_1 =           0x31,
+  kVK_2 =           0x32,
+  kVK_3 =           0x33,
+  kVK_4 =           0x34,
+  kVK_5 =           0x35,
+  kVK_6 =           0x36,
+  kVK_7 =           0x37,
+  kVK_8 =           0x38,
+  kVK_9 =           0x39,
+  kVK_A =           0x41,
+  kVK_B =           0x42,
+  kVK_C =           0x43,
+  kVK_D =           0x44,
+  kVK_E =           0x45,
+  kVK_F =           0x46,
+  kVK_G =           0x47,
+  kVK_H =           0x48,
+  kVK_I =           0x49,
+  kVK_J =           0x4A,
+  kVK_K =           0x4B,
+  kVK_L =           0x4C,
+  kVK_M =           0x4D,
+  kVK_N =           0x4E,
+  kVK_O =           0x4F,
+  kVK_P =           0x50,
+  kVK_Q =           0x51,
+  kVK_R =           0x52,
+  kVK_S =           0x53,
+  kVK_T =           0x54,
+  kVK_U =           0x55,
+  kVK_V =           0x56,
+  kVK_W =           0x57,
+  kVK_X =           0x58,
+  kVK_Y =           0x59,
+  kVK_Z =           0x5A,
+  
   kVK_LWIN =        0x5B,
-
+  
   kVK_NUMPAD0 =     0x60,
   kVK_NUMPAD1 =     0x61,
   kVK_NUMPAD2 =     0x62,

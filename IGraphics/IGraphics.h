@@ -50,6 +50,10 @@
 #include "IGraphicsPopupMenu.h"
 #include "IGraphicsEditorDelegate.h"
 
+#ifdef IGRAPHICS_IMGUI
+#include "IGraphicsImGui.h"
+#endif
+
 #include <stack>
 #include <memory>
 
@@ -74,22 +78,6 @@ class IGraphics
 : public IPlugAAXView_Interface
 #endif
 {
-protected:
-
-  class PlatformFont
-  {
-  public:
-    virtual ~PlatformFont() {}
-
-    virtual const void* GetDescriptor() { return nullptr; }
-    virtual IFontDataPtr GetFontData() { return IFontDataPtr(new IFontData()); }
-
-  protected:
-    int GetFaceIdx(const void* data, int dataSize, const char* styleName);
-  };
-
-  typedef std::unique_ptr<PlatformFont> PlatformFontPtr;
-    
 public:
 #pragma mark - Drawing API implementation
 
@@ -143,16 +131,6 @@ public:
    * @param yOffsetZeroDeg \todo
    * @param pBlend Optional blend method, see IBlend documentation */
   virtual void DrawRotatedBitmap(const IBitmap& bitmap, float destCentreX, float destCentreY, double angle, int yOffsetZeroDeg = 0, const IBlend* pBlend = 0) = 0;
-
-  /** Draw a rotated, masked bitmap to the graphics context
-   * @param base The base bitmap image to draw to the graphics context \todo explain base
-   * @param mask The mask bitmap image to draw to the graphics context \todo explain mask
-   * @param top The bitmap image to draw to the graphics context \todo explain top
-   * @param x The X coordinate in the graphics context at which to draw
-   * @param y The Y coordinate in the graphics context at which to draw
-   * @param angle The angle to rotate the bitmap mask at in degrees clockwise
-   * @param pBlend Optional blend method, see IBlend documentation */
-  virtual void DrawRotatedMask(const IBitmap& base, const IBitmap& mask, const IBitmap& top, float x, float y, double angle, const IBlend* pBlend = 0) = 0;
 
   /** Fill a rectangle corresponding to a pixel on a 1:1 screen with a color
    * @param color The color to fill the point with
@@ -352,24 +330,21 @@ public:
   /** Draw some text to the graphics context in a specific rectangle
    * @param text An IText struct containing font and text properties and layout info
    * @param str The text string to draw in the graphics context
-   * @param bounds The rectangular region in the graphics where you would like to draw the text
-   * @return \todo */
-  bool DrawText(const IText& text, const char* str, const IRECT& bounds, const IBlend* pBlend = 0);
+   * @param bounds The rectangular region in the graphics where you would like to draw the text */
+  void DrawText(const IText& text, const char* str, const IRECT& bounds, const IBlend* pBlend = 0);
 
   /** Draw some text to the graphics context at a point
    * @param text An IText struct containing font and text properties and layout info
    * @param str The text string to draw in the graphics context
    * @param x The x position in the graphics where you would like to draw the text
-   * @param y The y position in the graphics where you would like to draw the text
-   * @return \todo */
-  bool DrawText(const IText& text, const char* str, float x, float y, const IBlend* pBlend = 0);
+   * @param y The y position in the graphics where you would like to draw the text */
+  void DrawText(const IText& text, const char* str, float x, float y, const IBlend* pBlend = 0);
   
   /** Measure the rectangular region that some text will occupy
    * @param text An IText struct containing font and text properties and layout info
    * @param str The text string to draw in the graphics context
-   * @param bounds after calling the method this IRECT will be updated with the rectangular region the text will occupy
-   * @return \todo */
-  virtual bool MeasureText(const IText& text, const char* str, IRECT& bounds);
+   * @param bounds after calling the method this IRECT will be updated with the rectangular region the text will occupy */
+  virtual void MeasureText(const IText& text, const char* str, IRECT& bounds) const;
 
   /** Get the color of a point in the graphics context. On a 1:1 screen this corresponds to a pixel. \todo check this
    * @param x The X coordinate in the graphics context of the pixel
@@ -560,14 +535,12 @@ public:
   virtual void ApplyShadowMask(ILayerPtr& layer, RawBitmapData& mask, const IShadow& shadow) = 0;
   
   /** /todo
-   * @param layer /todo
-   * @param clearTransforms /todo */
-  void PushLayer(ILayer* layer, bool clearTransforms);
+   * @param layer /todo */
+  void PushLayer(ILayer* layer);
   
   /** /todo
-   * @param clearTransforms /todo
    * @return ILayer* /todo */
-  ILayer* PopLayer(bool clearTransforms);
+  ILayer* PopLayer();
   
 #pragma mark - Drawing API path support
 public:
@@ -631,7 +604,7 @@ public:
    * @param r /todo
    * @param aMin /todo
    * @param aMax /todo */
-  virtual void PathArc(float cx, float cy, float r, float aMin, float aMax) {}
+  virtual void PathArc(float cx, float cy, float r, float aMin, float aMax, EWinding winding = kWindingCW) {}
 
   /** /todo 
    * @param cx /todo
@@ -784,22 +757,20 @@ public:
    * @return /c true on success */
   virtual bool GetTextFromClipboard(WDL_String& str) = 0;
 
+  /** Set text in the clipboard
+   * @param str A WDL_String that will be used to set the current text in the clipboard
+   * @return /c true on success */
+  virtual bool SetTextInClipboard(const WDL_String& str) = 0;
+
   /** Call this if you modify control tool tips at runtime. \todo explain */
   virtual void UpdateTooltips() = 0;
 
   /** Pop up a modal platform message box dialog. NOTE: this method will block the main thread
    * @param str The text message to display in the dialogue
    * @param caption The title of the message box window \todo check
-   * @param type EMessageBoxType describing the button options available \see EMessageBoxType
+   * @param type EMsgBoxType describing the button options available \see EMsgBoxType
    * @return \todo check */
-  virtual int ShowMessageBox(const char* str, const char* caption, EMessageBoxType type) = 0;
-
-  /** Create a text entry box
-   * @param control The control that the text entry belongs to. If this control is linked to a parameter, the text entry will be configured with initial text matching the parameter value
-   * @param text An IText struct to set the formatting of the text entry box
-   * @param bounds The rectangular region in the graphics context that the text entry will occupy.
-   * @param str A CString to specify the default text to display when the text entry box is opened (unless the control specified by the first argument is linked to a parameter) */
-  void CreateTextEntry(IControl& control, const IText& text, const IRECT& bounds, const char* str = "");
+  virtual EMsgBoxResult ShowMessageBox(const char* str, const char* caption, EMsgBoxType type, IMsgBoxCompletionHanderFunc completionHandler = nullptr) = 0;
 
   /** Create a platform file prompt dialog to choose a file/directory path for opening/saving a file/directory. NOTE: this method will block the main thread
    * @param fileName Non const WDL_String reference specifying the file name. Set this prior to calling the method for save dialogs, to provide a default file name. For load dialogs, on successful selection of a file this will get set to the file’s name.
@@ -814,11 +785,10 @@ public:
 
   /** Create a platform color chooser dialog. NOTE: this method will block the main thread
    * @param color When a color is chosen the IColor referenced will be updated with the new color
-   * @param str The text to display in the dialog box e.g. "Please choose a color..."
+   * @param str The text to display in the dialog box e.g. "Please choose a color... (Windows only)"
+   * @param IColorPickerHandlerFunc func callback for asynchronouse color pickers (macOS)
    * @return /true if prompt completed successfully */
-  virtual bool PromptForColor(IColor& color, const char* str = "") = 0;
-  
-  virtual void CreateWebView(const IRECT& bounds, const char* url) {};
+  virtual bool PromptForColor(IColor& color, const char* str = "", IColorPickerHandlerFunc func = nullptr) = 0;
 
   /** Open a URL in the platform’s default browser
    * @param url CString specifying the URL to open
@@ -884,14 +854,14 @@ protected:
    * @param text /todo
    * @param bounds /todo
    * @param str /todo */
-  virtual void CreatePlatformTextEntry(IControl& control, const IText& text, const IRECT& bounds, const char* str = "") = 0;
+  virtual void CreatePlatformTextEntry(int paramIdx, const IText& text, const IRECT& bounds, int length, const char* str) = 0;
   
   /** /todo
    * @param menu /todo
    * @param bounds /todo
    * @param pCaller /todo
    * @return IPopupMenu* /todo */
-  virtual IPopupMenu* CreatePlatformPopupMenu(IPopupMenu& menu, const IRECT& bounds, IControl* pCaller = nullptr) = 0;
+  virtual IPopupMenu* CreatePlatformPopupMenu(IPopupMenu& menu, const IRECT& bounds) = 0;
 
 #pragma mark - Base implementation
 public:
@@ -914,28 +884,43 @@ public:
 
   /** Prompt for user input either using a text entry or pop up menu
    * @param control Reference to the control which the prompt relates to
-   * @param bounds Rectangular region of the graphics context that the prompt (e.g. text entry box) should occupy */
-  void PromptUserInput(IControl& control, const IRECT& bounds);
-
-  /** Called by the platform class after returning from a prompt (typically a text entry) in order to update a control with a new value
-   * @param control Reference to the control which the call relates to
-   * @param str The new value as a CString */
-  void SetControlValueFromStringAfterPrompt(IControl& control, const char* str);
+   * @param bounds Rectangular region of the graphics context that the prompt (e.g. text entry box) should occupy
+   * @param valIdx The value index for the control value that the prompt relates to */
+  void PromptUserInput(IControl& control, const IRECT& bounds, int valIdx = 0);
 
   /** Shows a pop up/contextual menu in relation to a rectangular region of the graphics context
+   * @param control A reference to the IControl creating this pop-up menu. If it exists IControl::OnPopupMenuSelection() will be called on successful selection
    * @param menu Reference to an IPopupMenu class populated with the items for the platform menu
    * @param bounds The platform menu will popup at the bottom left hand corner of this rectangular region
-   * @param pCaller A pointed to the IControl creating this pop-up menu. If it exists IControl::OnPopupMenuSelection() will be called on successful selection
-   * @return Pointer to an IPopupMenu that represents the menu that user finally clicked on (might not be the same as menu if they clicked a submenu) */
-  IPopupMenu* CreatePopupMenu(IPopupMenu& menu, const IRECT& bounds, IControl* pCaller = nullptr);
+   * @param valIdx The value index for the control value that the menu relates to */
+  void CreatePopupMenu(IControl& control, IPopupMenu& menu, const IRECT& bounds, int valIdx = 0);
 
   /** Shows a pop up/contextual menu at point in the graphics context
+   * @param control A reference to the IControl creating this pop-up menu. If it exists IControl::OnPopupMenuSelection() will be called on successful selection
    * @param x The X coordinate in the graphics context at which to pop up the menu
    * @param y The Y coordinate in the graphics context at which to pop up the menu
-   * @param pCaller A pointer to the IControl creating this pop-up menu. If it exists IControl::OnPopupMenuSelection() will be called on successful selection
-   * @return Pointer to an IPopupMenu that represents the menu that user finally clicked on (might not be the same as menu if they clicked a submenu) */
-  IPopupMenu* CreatePopupMenu(IPopupMenu& menu, float x, float y, IControl* pCaller = nullptr) { const IRECT bounds = IRECT(x,y,x,y); return CreatePopupMenu(menu, bounds, pCaller); }
+   * @param valIdx The value index for the control value that the menu relates to */
+  void CreatePopupMenu(IControl& control, IPopupMenu& menu, float x, float y, int valIdx = 0)
+  {
+    return CreatePopupMenu(control, menu, IRECT(x, y, x, y), valIdx);
+  }
+    
+  /** Create a text entry box
+   * @param control The control that the text entry belongs to. If this control is linked to a parameter, the text entry will be configured with initial text matching the parameter value
+   * @param text An IText struct to set the formatting of the text entry box
+   * @param bounds The rectangular region in the graphics context that the text entry will occupy.
+   * @param str A CString to specify the default text to display when the text entry box is opened (unless the control specified by the first argument is linked to a parameter)
+   * @param valIdx The value index for the control value that the text entry relates to */
+  void CreateTextEntry(IControl& control, const IText& text, const IRECT& bounds, const char* str = "", int valIdx = 0);
 
+   /** Called by the platform class after returning from a text entry in order to update a control with a new value. The base class has a record of the control, so it is not needed here.
+    * @param str The new value as a CString */
+  void SetControlValueAfterTextEdit(const char* str);
+    
+  /** Called by PopupMenuControl in order to update a control with a new value after returning from the non-blocking menu. The base class has a record of the control, so it is not needed here.
+   * @param pReturnMenu The new value as a CString */
+  void SetControlValueAfterPopupMenu(IPopupMenu* pMenu);
+    
   /** /todo 
    * @param lo /todo
    * @param hi /todo */
@@ -1010,6 +995,9 @@ public:
   /** @return Get a persistant IPopupMenu (remember to clear it before use) */
   IPopupMenu& GetPromptMenu() { return mPromptPopupMenu; }
   
+  /** @return True if text entry in progress */
+  bool IsInTextEntry() { return mInTextEntry != nullptr; }
+  
   /** @return \c true if tool tips are enabled */
   inline bool TooltipsEnabled() const { return mEnableTooltips; }
   
@@ -1050,11 +1038,17 @@ public:
   
   /** /todo
    * @param keyHandlerFunc /todo */
-  void SetKeyHandlerFunc(std::function<bool(const IKeyPress& key)> keyHandlerFunc) { mKeyHandlerFunc = keyHandlerFunc; }
+  void SetKeyHandlerFunc(IKeyHandlerFunc func) { mKeyHandlerFunc = func; }
+
+  /** /todo */
+  void AttachImGui(std::function<void(IGraphics*)> drawFunc, std::function<void()> setupFunc = nullptr);
   
 private:
+  /* /todo */
+  virtual void CreatePlatformImGui() {}
+  
   /** /todo */
-  virtual void PlatformResize() {}
+  virtual void PlatformResize(bool parentHasResized) {}
   
   /** /todo */
   virtual void DrawResize() {}
@@ -1070,6 +1064,14 @@ private:
    * @param scale /todo */
   void DrawControl(IControl* pControl, const IRECT& bounds, float scale);
   
+  /** Shows a pop up/contextual menu in relation to a rectangular region of the graphics context
+   * @param control A reference to the IControl creating this pop-up menu. If it exists IControl::OnPopupMenuSelection() will be called on successful selection
+   * @param menu Reference to an IPopupMenu class populated with the items for the platform menu
+   * @param bounds The platform menu will popup at the bottom left hand corner of this rectangular region
+   * @param isContext Determines if the menu is a contextual menu or not
+   * @param valIdx The value index for the control value that the prompt relates to */
+  void DoCreatePopupMenu(IControl& control, IPopupMenu& menu, const IRECT& bounds, int valIdx, bool isContext);
+    
 protected: // TODO: correct?
   /** /todo */
   void StartResizeGesture() { mResizingInProcess = true; };
@@ -1118,7 +1120,7 @@ public:
 
   /** Attach an IPanelControl as the lowest IControl in the control stack to fill the background with a solid color
    * @param color The color to fill the panel with */
-  void AttachPanelBackground(const IColor& color);
+  void AttachPanelBackground(const IPattern& color);
   
   /** Attach the default control to scale or increase the UI size by dragging the plug-in bottom right-hand corner
    * @param sizeMode Choose whether to scale or size the UI */
@@ -1133,7 +1135,7 @@ public:
    @param text The text style to use for the menu
    @param bounds The area that the menu should occupy /todo check */
   void AttachPopupMenuControl(const IText& text = DEFAULT_TEXT, const IRECT& bounds = IRECT());
-  
+
   /** Shows a control to display the frame rate of drawing
    * @param enable \c true to show */
   void ShowFPSDisplay(bool enable);
@@ -1173,18 +1175,13 @@ public:
   ITextEntryControl* GetTextEntryControl() { return mTextEntryControl.get(); }
   
   /** Helper method to style all of the controls which inherit IVectorBase
-   * @param drawFrame Should the controls draw a frame
-   * @param drawShadow Should the controls draw a shadow (where relevant)
-   * @param emboss Should the controls be embossed (where relevant)
-   * @param roundness Roundness in pixels of the corners, of rectangles in the controls
-   * @param frameThickness Thickness in pixels of the control frame
-   * @param shadowOffset Offset in pixels of the control shadow (where relevant)
-   * @param spec Color spec for the controls */
-  void StyleAllVectorControls(bool drawFrame, bool drawShadow, bool emboss, float roundness, float frameThickness, float shadowOffset, const IVColorSpec& spec = DEFAULT_SPEC);
+   * @param IVStyle Style for the controls */
+  void StyleAllVectorControls(const IVStyle& style);
   
-  /** This method is called after interacting with a control, so that any other controls linked to the same parameter index, will also be set dirty, and have their values updated.
-   * @param pCaller The control that triggered the parameter change. */
-  void UpdatePeers(IControl* pCaller);
+   /** This method is called after interacting with a control, so that any other controls linked to the same parameter index, will also be set dirty, and have their values updated.
+    * @param pCaller The control that triggered the parameter change.
+    * @param callerValIdx The index of the value in the control that triggered the parameter change. */
+  void UpdatePeers(IControl* pCaller, int callerValIdx);
   
   /** @return The number of controls that have been added to this graphics context */
   int NControls() const { return mControls.GetSize(); }
@@ -1204,13 +1201,6 @@ public:
    * @param paramIdx The parameter index
    * @param gray /true to gray-out */
   void GrayOutControl(int paramIdx, bool gray);
-
-  /** Clamp controls link to a specific parameter
-   * @param paramIdx The parameter index
-   * @param lo The minimum control value
-   * @param hi The maximum control value
-   * @param normalized Determines whether the minimum and maximum are normalized or not */
-  void ClampControl(int paramIdx, double lo, double hi, bool normalized);
 
   /** Calls SetDirty() on every control */
   void SetAllControlsDirty();
@@ -1271,6 +1261,12 @@ public:
    * @return \c true if handled \todo check this */
   bool OnKeyDown(float x, float y, const IKeyPress& key);
 
+  /** @param x The X coordinate in the graphics context of the mouse cursor at the time of the key press
+   * @param y The Y coordinate in the graphics context of the mouse cursor at the time of the key press
+   * @param key \todo
+   * @return \c true if handled \todo check this */
+  bool OnKeyUp(float x, float y, const IKeyPress& key);
+  
   /** @param x The X coordinate in the graphics context at which to draw
    * @param y The Y coordinate in the graphics context at which to draw
    * @param mod IMouseMod struct contain information about the modifiers held
@@ -1417,17 +1413,43 @@ protected:
    * @param text /todo
    * @param str /todo
    * @param bounds /todo
-   * @param pBlend /todo
-   * @param measure /todo
-   * @return true /todo */
-  virtual bool DoDrawMeasureText(const IText& text, const char* str, IRECT& bounds, const IBlend* pBlend = nullptr, bool measure = false) = 0;
+   * @param pBlend /todo */
+  virtual void DoMeasureText(const IText& text, const char* str, IRECT& bounds) const = 0;
+    
+  /** /todo
+   * @param text /todo
+   * @param str /todo
+   * @param bounds /todo
+   * @param pBlend /todo */
+  virtual void DoDrawText(const IText& text, const char* str, const IRECT& bounds, const IBlend* pBlend = nullptr) = 0;
 
+  /** /todo
+   * @param text /todo
+   * @param bounds /todo
+   * @param rect /todo */
+  void DoMeasureTextRotation(const IText& text, const IRECT& bounds, IRECT& rect) const;
+  
+  /** /todo
+   text
+   * @param text /todo
+   * @param bounds /todo
+   * @param rect /todo
+   * @param tx /todo
+   * @param ty /todo */
+  void CalulateTextRotation(const IText& text, const IRECT& bounds, IRECT& rect, double& tx, double& ty) const;
+  
   /** @return float /todo */
   virtual float GetBackingPixelScale() const = 0;
   
 #pragma mark -
 
 private:
+  void ClearMouseOver()
+  {
+    mMouseOver = nullptr;
+    mMouseOverIdx = -1;
+  }
+  
   WDL_PtrList<IControl> mControls;
 
   // Order (front-to-back) ToolTip / PopUp / TextEntry / LiveEdit / Corner / PerfDisplay
@@ -1448,6 +1470,11 @@ private:
   int mIdleTicks = 0;
   IControl* mMouseCapture = nullptr;
   IControl* mMouseOver = nullptr;
+  IControl* mInTextEntry = nullptr;
+  IControl* mInPopupMenu = nullptr;
+  bool mIsContextMenu;
+  int mTextEntryValIdx = kNoValIdx;
+  int mPopupMenuValIdx = kNoValIdx;
   int mMouseOverIdx = -1;
   float mMouseDownX = -1.f;
   float mMouseDownY = -1.f;
@@ -1467,7 +1494,7 @@ private:
   bool mLayoutOnResize = false;
   EUIResizerMode mGUISizeMode = EUIResizerMode::kUIResizerScale;
   double mPrevTimestamp = 0.;
-  std::function<bool(const IKeyPress& key)> mKeyHandlerFunc = nullptr;
+  IKeyHandlerFunc mKeyHandlerFunc = nullptr;
 protected:
   IGEditorDelegate* mDelegate;
   void* mPlatformContext = nullptr;
@@ -1479,7 +1506,12 @@ protected:
 
   friend class IGraphicsLiveEdit;
   friend class ICornerResizerControl;
+  friend class ITextEntryControl;
   
   std::stack<ILayer*> mLayers;
+  
+#ifdef IGRAPHICS_IMGUI
+public:
+  std::unique_ptr<ImGuiRenderer> mImGuiRenderer;
+#endif
 };
-

@@ -49,7 +49,7 @@ public:
     kFlagMeta             = 0x10,
   };
   
-  typedef std::function<void(double, WDL_String&)> DisplayFunc;
+  using DisplayFunc = std::function<void(double, WDL_String&)>;
 
 #pragma mark - Shape
 
@@ -306,6 +306,13 @@ public:
    * @param withDisplayText /todo */
   void GetDisplayForHost(WDL_String& display, bool withDisplayText = true) const { GetDisplayForHost(mValue.load(), false, display, withDisplayText); }
 
+  void GetDisplayForHostWithLabel(WDL_String& display, bool withDisplayText = true) const
+  {
+    GetDisplayForHost(mValue.load(), false, display, withDisplayText);
+    display.Append(" ");
+    display.Append(GetLabelForHost());
+  }
+  
   /** /todo 
    * @param value /todo
    * @param normalized /todo
